@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gil's Hytale Manager</title>
+    <style>
+        body { background-color: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; border: 1px solid #333; padding: 20px; }
+        h1 { border-bottom: 1px solid #00ff00; padding-bottom: 10px; }
+        .status { font-size: 1.5em; font-weight: bold; }
+        .ONLINE { color: #00ff00; }
+        .OFFLINE { color: #ff0000; }
+        .btn { background: #333; color: white; border: 1px solid #555; padding: 10px 20px; cursor: pointer; text-decoration: none; display: inline-block; margin-right: 10px; }
+        .btn:hover { background: #555; }
+        .btn-red { border-color: red; color: red; }
+        .mod-list { margin-top: 20px; border-top: 1px dashed #555; padding-top: 20px; }
+        input[type="text"] { background: #000; border: 1px solid #00ff00; color: white; padding: 10px; width: 200px; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 5px 0; border-bottom: 1px solid #222; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>&gt; HYTALE SERVER CONTROL_</h1>
+        
+        <p>STATUS: <span class="status {{ status }}">{{ status }}</span></p>
+        
+        <div class="controls">
+            <a href="/action/start" class="btn">BOOT SYSTEM</a>
+            <a href="/action/stop" class="btn btn-red">HALT SYSTEM</a>
+            <a href="/action/restart" class="btn">REBOOT (Apply Mods)</a>
+        </div>
+
+        <div class="mod-list">
+            <h2>&gt; MOD_INJECTOR (CurseForge ID)</h2>
+            <form action="/add_mod" method="POST">
+                <input type="text" name="mod_id" placeholder="Ex: 325467" required>
+                <button type="submit" class="btn">INJECT</button>
+                <a href="https://www.curseforge.com/minecraft/mc-mods" target="_blank" style="color: #666; font-size: 0.8em;">Find IDs on CurseForge</a>
+            </form>
+
+            <h3>&gt; ACTIVE_MODULES:</h3>
+            <ul>
+                {% for mod in mods %}
+                <li>
+                    ID: <b>{{ mod }}</b> 
+                    <a href="/remove_mod/{{ mod }}" style="color: red; float: right;">[EJECT]</a>
+                </li>
+                {% else %}
+                <li style="color: #666;">No modules loaded.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

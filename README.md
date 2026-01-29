@@ -33,7 +33,8 @@ pip install psutil
 ```
 
 ### 3. Run Docker Server
-Run this from your project root (parent of `data` folder):
+Run this from your project root (parent of `data` folder).
+**Replace `YOUR_API_KEY` with your actual CurseForge API Key.**
 
 ```bash
 sudo docker run -d \
@@ -45,11 +46,14 @@ sudo docker run -d \
   -e HYTALE_EULA=true \
   -e HYTALE_AUTH_BACKEND="sanasol" \
   -e HYTALE_ONLINE_MODE=false \
-  -e CF_MODS_FILE="/data/cf_mods.txt" \
+  -e HYTALE_CURSEFORGE_MODS="@/data/cf_mods.txt" \
+  -e HYTALE_CURSEFORGE_API_KEY='YOUR_API_KEY_HERE' \
   -e JVM_OPTS="-Xms12G -Xmx12G -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -XX:+AlwaysPreTouch" \
   --memory="14g" \
   ghcr.io/sanasol/hytale-server-docker:latest
 ```
+
+*Note: Use single quotes `'` for the API Key to avoid shell issues with `$` characters.*
 
 ### 4. Launch Manager
 ```bash

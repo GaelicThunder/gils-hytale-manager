@@ -108,22 +108,22 @@ def get_mod_name_auto(mod_id):
     return None
 
 def scan_mod_errors(container, mod_ids):
-    """Scan container logs for failure messages related to specific mod IDs."""
+    """Scan container logs for specific failure patterns."""
     failed_ids = set()
     if not container: return failed_ids
     
     try:
         # Read logs (tail 2000 lines should cover startup)
-        logs = container.logs(tail=2000).decode('utf-8', errors='ignore').lower()
-        lines = logs.split('\n')
+        logs = container.logs(tail=2000).decode('utf-8', errors='ignore')
         
-        for line in lines:
-            # Look for lines with error keywords
-            if "error" in line or "fail" in line or "exception" in line or "skipping" in line or "not found" in line:
-                for m_id in mod_ids:
-                    # Check if mod ID is in this error line
-                    if str(m_id) in line:
-                        failed_ids.add(str(m_id))
+        # Regex to match: WARNING: failed to install mod 123456
+        # Matches your exact log format
+        error_pattern = re.compile(r"failed to install mod\s+(\d+)")
+        
+        found_errors = error_pattern.findall(logs)
+        for err_id in found_errors:
+            failed_ids.add(str(err_id))
+            
     except:
         pass
     return failed_ids
@@ -230,5 +230,5 @@ def save_key():
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    print(f"[*] Gil's Manager v2.3 - Active Data Path: {DATA_PATH}")
+    print(f"[*] Gil's Manager v2.4 - Active Data Path: {DATA_PATH}")
     app.run(host='0.0.0.0', port=5000, debug=True)

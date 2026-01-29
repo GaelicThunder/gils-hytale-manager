@@ -11,6 +11,7 @@
             --accent-blue: #3b82f6;
             --accent-green: #10b981;
             --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
             --text-primary: #f3f4f6;
             --text-secondary: #9ca3af;
             --border: 1px solid #374151;
@@ -54,6 +55,19 @@
         }
         .ONLINE { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
         .OFFLINE { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        /* Alerts */
+        .alert {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--accent-orange);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
         /* Cards */
         .card {
@@ -100,8 +114,8 @@
         .btn-danger { background: transparent; color: var(--accent-red); border: 1px solid var(--accent-red); padding: 6px 12px; font-size: 12px; }
 
         /* Form */
-        .mod-form { display: flex; gap: 12px; margin-bottom: 20px; }
-        input[type="text"] {
+        .input-group { display: flex; gap: 12px; margin-bottom: 20px; }
+        input[type="text"], input[type="password"] {
             flex: 1;
             background: #000;
             border: 1px solid #374151;
@@ -145,6 +159,12 @@
             <div class="status-badge {{ status }}">{{ status }}</div>
         </header>
 
+        {% if not api_key_set %}
+        <div class="alert">
+            ⚠️ <strong>Warning:</strong> CurseForge API Key not detected. Mod downloads will fail.
+        </div>
+        {% endif %}
+
         <div class="stats-grid">
             <div class="card stat-item">
                 <span class="stat-label">CPU Load</span>
@@ -165,8 +185,17 @@
         </div>
 
         <div class="card">
+            <h2>Settings</h2>
+            <form action="/save_key" method="POST" class="input-group">
+                <input type="password" name="api_key" placeholder="Paste CurseForge API Key ($2a$10$...)" required>
+                <button type="submit" class="btn btn-secondary" style="flex: 0 0 100px;">Save Key</button>
+            </form>
+            <small style="color: #666;">Note: Restart container manually after changing API Key for it to take effect.</small>
+        </div>
+
+        <div class="card">
             <h2>Mod Manager</h2>
-            <form action="/add_mod" method="POST" class="mod-form">
+            <form action="/add_mod" method="POST" class="input-group">
                 <input type="text" name="mod_id" placeholder="Enter CurseForge Project ID (e.g. 325467)" required>
                 <button type="submit" class="btn btn-primary" style="flex: 0 0 100px;">Inject</button>
             </form>

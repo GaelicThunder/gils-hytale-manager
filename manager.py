@@ -9,6 +9,8 @@ app = Flask(__name__)
 client = docker.from_env()
 
 # CONFIGURATION
+CONTAINER_NAME = "hytale-server"  # <--- FIXED: Restored missing variable
+
 # Determine where the data folder is.
 # Priority:
 # 1. Environment Variable HYTALE_DATA

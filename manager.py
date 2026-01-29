@@ -9,13 +9,36 @@ app = Flask(__name__)
 client = docker.from_env()
 
 # CONFIGURATION
-CONTAINER_NAME = "hytale-server"
-DATA_PATH = os.path.expanduser("~/hytale_data")
+# Determine where the data folder is.
+# Priority:
+# 1. Environment Variable HYTALE_DATA
+# 2. Sibling directory "../data" (relative to this script) -> Matches your structure
+# 3. Default "~/hytale_data"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SIBLING_DATA = os.path.abspath(os.path.join(BASE_DIR, "..", "data"))
+HOME_DATA = os.path.expanduser("~/hytale_data")
+
+if os.environ.get("HYTALE_DATA"):
+    DATA_PATH = os.environ.get("HYTALE_DATA")
+    print(f"[*] Configuration: Using env var path: {DATA_PATH}")
+elif os.path.exists(SIBLING_DATA):
+    DATA_PATH = SIBLING_DATA
+    print(f"[*] Configuration: Found sibling data folder: {DATA_PATH}")
+else:
+    DATA_PATH = HOME_DATA
+    print(f"[*] Configuration: Defaulting to home path: {DATA_PATH}")
+
 MODS_FILE = os.path.join(DATA_PATH, "cf_mods.txt")
 
+# Ensure file exists
 if not os.path.exists(MODS_FILE):
-    with open(MODS_FILE, "w") as f:
-        f.write("")
+    print(f"[*] Creating new mods file at: {MODS_FILE}")
+    try:
+        with open(MODS_FILE, "w") as f:
+            f.write("")
+    except PermissionError:
+        print(f"[!] ERROR: Permission denied writing to {MODS_FILE}. Check folder permissions.")
 
 def get_container():
     try:
@@ -27,7 +50,7 @@ def get_mod_name_auto(mod_id):
     """
     Attempts to fetch the mod name automatically using public APIs.
     """
-    # Method 1: CFWidget API (Public, no key required for basic info)
+    # Method 1: CFWidget API
     try:
         response = requests.get(f"https://api.cfwidget.com/{mod_id}", timeout=5)
         if response.status_code == 200:
@@ -36,13 +59,10 @@ def get_mod_name_auto(mod_id):
     except:
         pass
 
-    # Method 2: Scrape redirection from legacy ID URL
+    # Method 2: Scrape redirection
     try:
-        # Curseforge legacy project URL redirects to the new slug-based URL
-        # We can extract a readable name from the URL slug
         r = requests.head(f"https://minecraft.curseforge.com/projects/{mod_id}", allow_redirects=True, timeout=5)
         if r.status_code == 200:
-            # URL format: .../minecraft/mc-mods/mod-name-slug
             slug = r.url.split('/')[-1]
             return slug.replace('-', ' ').title()
     except:
@@ -59,47 +79,37 @@ def index():
     if container and container.status == "running":
         status = "ONLINE"
         try:
-            # Use PSUTIL for accurate stats via PID
-            # Docker stats API is slow and hard to parse for single snapshots
             pid = container.attrs['State']['Pid']
             proc = psutil.Process(pid)
-            
-            # CPU (interval=None is non-blocking)
             cpu = proc.cpu_percent(interval=None)
-            
-            # RAM
             mem = proc.memory_info()
-            ram_used = mem.rss / (1024 * 1024) # MB
-            
-            # Limit (from docker attrs)
+            ram_used = mem.rss / (1024 * 1024)
             mem_limit = container.attrs['HostConfig']['Memory'] / (1024 * 1024)
-            if mem_limit == 0: mem_limit = 16384 # Fallback 16GB if unconstrained
+            if mem_limit == 0: mem_limit = 16384 
             
             stats = {
                 "cpu": f"{cpu:.1f}%",
                 "ram": f"{int(ram_used)} MB / {int(mem_limit)} MB"
             }
-        except Exception as e:
+        except Exception:
             stats = {"cpu": "0%", "ram": "Stats Error"}
 
-    # Read mods
     mods = []
-    with open(MODS_FILE, "r") as f:
-        lines = f.readlines()
-        for line in lines:
-            parts = line.strip().split('|')
-            m_id = parts[0]
-            m_name = parts[1] if len(parts) > 1 else "Unknown Mod"
-            
-            # If name is missing/unknown, try to fetch it now and update file
-            if len(parts) == 1 or m_name == "Unknown Mod" or m_name == f"Mod {m_id}":
-                fetched_name = get_mod_name_auto(m_id)
-                if fetched_name:
-                    m_name = fetched_name
-                    # Note: We aren't writing back to file here to avoid blocking page load
-                    # Ideally we would update the file, but let's keep it simple for now
-            
-            if m_id:
+    if os.path.exists(MODS_FILE):
+        with open(MODS_FILE, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                parts = line.strip().split('|')
+                if not parts[0]: continue
+                
+                m_id = parts[0]
+                m_name = parts[1] if len(parts) > 1 else f"Mod {m_id}"
+                
+                # Auto-resolve name if missing
+                if len(parts) == 1 or m_name == f"Mod {m_id}":
+                    fetched = get_mod_name_auto(m_id)
+                    if fetched: m_name = fetched
+                
                 mods.append({"id": m_id, "name": m_name})
 
     return render_template('index.html', status=status, stats=stats, mods=mods)
@@ -110,10 +120,7 @@ def logs():
     if not container:
         return jsonify({"log": "Waiting for container..."})
     try:
-        # Fetch last 50 lines
         log_content = container.logs(tail=50).decode('utf-8')
-        # Remove ANSI color codes for clean display if needed, but modern browsers might handle them 
-        # or we display raw. Let's strip for safety in basic textarea
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         clean_log = ansi_escape.sub('', log_content)
         return jsonify({"log": clean_log})
@@ -137,18 +144,14 @@ def container_action(action):
 def add_mod():
     mod_id = request.form.get('mod_id').strip()
     
-    if mod_id:
-        # Check duplicates
+    if mod_id and os.path.exists(MODS_FILE):
         with open(MODS_FILE, "r") as f:
             lines = f.readlines()
         
-        # Check if ID exists
         exists = any(line.split('|')[0] == mod_id for line in lines)
         
         if not exists:
-            # Fetch name
             name = get_mod_name_auto(mod_id) or f"Mod {mod_id}"
-            
             with open(MODS_FILE, "a") as f:
                 f.write(f"{mod_id}|{name}\n")
     
@@ -156,15 +159,17 @@ def add_mod():
 
 @app.route('/remove_mod/<mod_id>')
 def remove_mod(mod_id):
-    with open(MODS_FILE, "r") as f:
-        lines = f.readlines()
-    
-    with open(MODS_FILE, "w") as f:
-        for line in lines:
-            if line.split('|')[0] != mod_id:
-                f.write(line)
+    if os.path.exists(MODS_FILE):
+        with open(MODS_FILE, "r") as f:
+            lines = f.readlines()
+        
+        with open(MODS_FILE, "w") as f:
+            for line in lines:
+                if line.split('|')[0] != mod_id:
+                    f.write(line)
                 
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
+    print(f"[*] Gil's Manager v2.0 - Active Data Path: {DATA_PATH}")
     app.run(host='0.0.0.0', port=5000, debug=True)

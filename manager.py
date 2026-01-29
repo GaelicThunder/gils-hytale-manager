@@ -1,7 +1,9 @@
 import docker
 import os
 import requests
-from flask import Flask, render_template, request, jsonify, redirect, url_for, Response
+import psutil
+import re
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 app = Flask(__name__)
 client = docker.from_env()
@@ -21,60 +23,84 @@ def get_container():
     except docker.errors.NotFound:
         return None
 
-def get_mod_name(mod_id):
-    """Fetch mod name from CurseForge API (unofficial endpoint or fallback)."""
+def get_mod_name_auto(mod_id):
+    """
+    Attempts to fetch the mod name automatically using public APIs.
+    """
+    # Method 1: CFWidget API (Public, no key required for basic info)
     try:
-        # CurseForge API is complex and requires keys, using a simple scrape fallback for ID check
-        # For a proper implementation, we'd need an API Key. 
-        # Using a public accessible lookup if available, otherwise fallback to ID.
-        # Minimalist approach: Just return ID if offline or complex.
-        # Actually, let's try a direct request to the project page title if possible,
-        # but for speed/stability without API key, let's stick to ID or user input.
-        # UPGRADE: Using a known open API proxy or just ID for now to avoid complexity without key.
-        return f"Mod {mod_id}" 
+        response = requests.get(f"https://api.cfwidget.com/{mod_id}", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("title") or data.get("name")
     except:
-        return f"Mod {mod_id}"
+        pass
+
+    # Method 2: Scrape redirection from legacy ID URL
+    try:
+        # Curseforge legacy project URL redirects to the new slug-based URL
+        # We can extract a readable name from the URL slug
+        r = requests.head(f"https://minecraft.curseforge.com/projects/{mod_id}", allow_redirects=True, timeout=5)
+        if r.status_code == 200:
+            # URL format: .../minecraft/mc-mods/mod-name-slug
+            slug = r.url.split('/')[-1]
+            return slug.replace('-', ' ').title()
+    except:
+        pass
+        
+    return None
 
 @app.route('/')
 def index():
     container = get_container()
     status = "OFFLINE"
-    stats = {"cpu": "0.00%", "ram": "0 / 0 MB"}
+    stats = {"cpu": "0%", "ram": "0 MB / 0 MB"}
     
     if container and container.status == "running":
         status = "ONLINE"
         try:
-            # Get live stats (stream=False gets one snapshot)
-            s = container.stats(stream=False)
+            # Use PSUTIL for accurate stats via PID
+            # Docker stats API is slow and hard to parse for single snapshots
+            pid = container.attrs['State']['Pid']
+            proc = psutil.Process(pid)
             
-            # Calculate CPU
-            cpu_delta = s['cpu_stats']['cpu_usage']['total_usage'] - s['precpu_stats']['cpu_usage']['total_usage']
-            system_cpu_delta = s['cpu_stats']['system_cpu_usage'] - s['precpu_stats']['system_cpu_usage']
-            cpu_percent = 0.0
-            if system_cpu_delta > 0 and cpu_delta > 0:
-                cpu_percent = (cpu_delta / system_cpu_delta) * len(s['cpu_stats']['cpu_usage']['percpu_usage']) * 100.0
+            # CPU (interval=None is non-blocking)
+            cpu = proc.cpu_percent(interval=None)
             
-            # Calculate RAM
-            mem_usage = s['memory_stats']['usage'] / (1024 * 1024)
-            mem_limit = s['memory_stats']['limit'] / (1024 * 1024)
+            # RAM
+            mem = proc.memory_info()
+            ram_used = mem.rss / (1024 * 1024) # MB
+            
+            # Limit (from docker attrs)
+            mem_limit = container.attrs['HostConfig']['Memory'] / (1024 * 1024)
+            if mem_limit == 0: mem_limit = 16384 # Fallback 16GB if unconstrained
             
             stats = {
-                "cpu": f"{cpu_percent:.2f}%",
-                "ram": f"{int(mem_usage)} / {int(mem_limit)} MB"
+                "cpu": f"{cpu:.1f}%",
+                "ram": f"{int(ram_used)} MB / {int(mem_limit)} MB"
             }
-        except:
-            stats = {"cpu": "err", "ram": "err"}
+        except Exception as e:
+            stats = {"cpu": "0%", "ram": "Stats Error"}
 
-    # Read mods with names if saved, format: ID|Name
+    # Read mods
     mods = []
     with open(MODS_FILE, "r") as f:
         lines = f.readlines()
         for line in lines:
             parts = line.strip().split('|')
-            if len(parts) >= 2:
-                mods.append({"id": parts[0], "name": parts[1]})
-            elif parts[0]:
-                mods.append({"id": parts[0], "name": f"Mod {parts[0]}"})
+            m_id = parts[0]
+            m_name = parts[1] if len(parts) > 1 else "Unknown Mod"
+            
+            # If name is missing/unknown, try to fetch it now and update file
+            if len(parts) == 1 or m_name == "Unknown Mod" or m_name == f"Mod {m_id}":
+                fetched_name = get_mod_name_auto(m_id)
+                if fetched_name:
+                    m_name = fetched_name
+                    # Note: We aren't writing back to file here to avoid blocking page load
+                    # Ideally we would update the file, but let's keep it simple for now
+            
+            if m_id:
+                mods.append({"id": m_id, "name": m_name})
 
     return render_template('index.html', status=status, stats=stats, mods=mods)
 
@@ -82,9 +108,17 @@ def index():
 def logs():
     container = get_container()
     if not container:
-        return jsonify({"log": "Container not found"})
-    # Get last 100 lines
-    return jsonify({"log": container.logs(tail=100).decode('utf-8')})
+        return jsonify({"log": "Waiting for container..."})
+    try:
+        # Fetch last 50 lines
+        log_content = container.logs(tail=50).decode('utf-8')
+        # Remove ANSI color codes for clean display if needed, but modern browsers might handle them 
+        # or we display raw. Let's strip for safety in basic textarea
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        clean_log = ansi_escape.sub('', log_content)
+        return jsonify({"log": clean_log})
+    except:
+        return jsonify({"log": "Error fetching logs"})
 
 @app.route('/action/<action>')
 def container_action(action):
@@ -96,28 +130,27 @@ def container_action(action):
         container.start()
     elif action == "restart":
         container.restart()
-    # Removed STOP action as requested
     
     return redirect(url_for('index'))
 
 @app.route('/add_mod', methods=['POST'])
 def add_mod():
     mod_id = request.form.get('mod_id').strip()
-    mod_name = request.form.get('mod_name', '').strip() # Optional name input
-    if not mod_name: 
-        mod_name = f"Mod {mod_id}"
-        
+    
     if mod_id:
         # Check duplicates
         with open(MODS_FILE, "r") as f:
             lines = f.readlines()
         
-        # Check if ID exists in any line
-        exists = any(line.startswith(mod_id + "|") or line.strip() == mod_id for line in lines)
+        # Check if ID exists
+        exists = any(line.split('|')[0] == mod_id for line in lines)
         
         if not exists:
+            # Fetch name
+            name = get_mod_name_auto(mod_id) or f"Mod {mod_id}"
+            
             with open(MODS_FILE, "a") as f:
-                f.write(f"{mod_id}|{mod_name}\n")
+                f.write(f"{mod_id}|{name}\n")
     
     return redirect(url_for('index'))
 
@@ -128,9 +161,7 @@ def remove_mod(mod_id):
     
     with open(MODS_FILE, "w") as f:
         for line in lines:
-            parts = line.strip().split('|')
-            current_id = parts[0]
-            if current_id != mod_id:
+            if line.split('|')[0] != mod_id:
                 f.write(line)
                 
     return redirect(url_for('index'))

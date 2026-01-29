@@ -132,6 +132,17 @@
         .mod-list tr:last-child td { border-bottom: none; }
         .mod-name { font-weight: 500; }
         .mod-id { color: var(--text-secondary); font-size: 13px; font-family: monospace; }
+        
+        .mod-error { background: rgba(239, 68, 68, 0.1); }
+        .error-badge {
+            color: var(--accent-red);
+            font-size: 12px;
+            border: 1px solid var(--accent-red);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+            display: inline-block;
+        }
 
         /* Logs */
         .log-viewer {
@@ -202,8 +213,13 @@
             
             <table class="mod-list">
                 {% for mod in mods %}
-                <tr>
-                    <td class="mod-name">{{ mod.name }}</td>
+                <tr class="{% if mod.has_error %}mod-error{% endif %}">
+                    <td class="mod-name">
+                        {{ mod.name }}
+                        {% if mod.has_error %}
+                        <span class="error-badge">⚠️ Failed</span>
+                        {% endif %}
+                    </td>
                     <td class="mod-id">#{{ mod.id }}</td>
                     <td style="text-align: right;">
                         <a href="/remove_mod/{{ mod.id }}" class="btn btn-danger">Remove</a>

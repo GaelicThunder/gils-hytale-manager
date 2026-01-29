@@ -1,55 +1,224 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Gil's Hytale Manager</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gil's Hytale Manager // TERMINAL</title>
     <style>
-        body { background-color: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; border: 1px solid #333; padding: 20px; }
-        h1 { border-bottom: 1px solid #00ff00; padding-bottom: 10px; }
-        .status { font-size: 1.5em; font-weight: bold; }
-        .ONLINE { color: #00ff00; }
-        .OFFLINE { color: #ff0000; }
-        .btn { background: #333; color: white; border: 1px solid #555; padding: 10px 20px; cursor: pointer; text-decoration: none; display: inline-block; margin-right: 10px; }
-        .btn:hover { background: #555; }
-        .btn-red { border-color: red; color: red; }
-        .mod-list { margin-top: 20px; border-top: 1px dashed #555; padding-top: 20px; }
-        input[type="text"] { background: #000; border: 1px solid #00ff00; color: white; padding: 10px; width: 200px; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 5px 0; border-bottom: 1px solid #222; }
+        :root {
+            --bg-color: #0d0d0d;
+            --term-green: #00ff41;
+            --term-dim: #008F11;
+            --alert-red: #ff3333;
+            --panel-bg: #1a1a1a;
+            --border: 1px solid #333;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--term-green);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .main-interface {
+            width: 100%;
+            max-width: 1000px;
+            display: grid;
+            gap: 20px;
+        }
+
+        /* HEADER & STATUS */
+        .header-panel {
+            border-bottom: 2px solid var(--term-green);
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        
+        h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
+        .blink { animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+
+        .status-badge {
+            font-weight: bold;
+            padding: 5px 10px;
+            background: #000;
+            border: 1px solid var(--term-green);
+        }
+        .ONLINE { color: var(--bg-color); background: var(--term-green); box-shadow: 0 0 10px var(--term-green); }
+        .OFFLINE { color: var(--alert-red); border-color: var(--alert-red); box-shadow: 0 0 5px var(--alert-red); }
+
+        /* DASHBOARD GRID */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--panel-bg);
+            border: var(--border);
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .panel-title {
+            margin-top: 0;
+            border-bottom: 1px dashed #444;
+            padding-bottom: 5px;
+            font-size: 14px;
+            color: #888;
+        }
+
+        /* STATS */
+        .stat-row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 1.1em; }
+        .stat-val { font-weight: bold; }
+
+        /* CONTROLS */
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        .btn {
+            background: transparent;
+            color: var(--term-green);
+            border: 1px solid var(--term-green);
+            padding: 10px 20px;
+            cursor: pointer;
+            text-decoration: none;
+            text-transform: uppercase;
+            font-weight: bold;
+            transition: all 0.2s;
+            text-align: center;
+            flex: 1;
+        }
+        .btn:hover { background: var(--term-green); color: var(--bg-color); }
+        .btn-action { border-color: #fff; color: #fff; }
+        .btn-action:hover { background: #fff; color: #000; }
+
+        /* LOGS */
+        .log-panel { grid-column: 1 / -1; }
+        #console-output {
+            background: #000;
+            height: 200px;
+            overflow-y: scroll;
+            padding: 10px;
+            font-size: 12px;
+            color: #ccc;
+            border: 1px solid #333;
+            white-space: pre-wrap;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* MODS */
+        .mod-panel { grid-column: 1 / -1; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        input[type="text"] {
+            background: #000;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 10px;
+            flex: 1;
+            font-family: inherit;
+        }
+        input:focus { outline: none; border-color: var(--term-green); }
+        
+        .mod-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .mod-table td { padding: 8px; border-bottom: 1px solid #333; }
+        .mod-id { color: #666; font-size: 0.9em; }
+        .mod-name { font-weight: bold; color: #fff; }
+        .btn-del { color: var(--alert-red); text-decoration: none; border: 1px solid #555; padding: 2px 8px; font-size: 12px; }
+        .btn-del:hover { border-color: var(--alert-red); background: rgba(255, 50, 50, 0.1); }
+
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>&gt; HYTALE SERVER CONTROL_</h1>
+    <div class="main-interface">
         
-        <p>STATUS: <span class="status {{ status }}">{{ status }}</span></p>
-        
-        <div class="controls">
-            <a href="/action/start" class="btn">BOOT SYSTEM</a>
-            <a href="/action/stop" class="btn btn-red">HALT SYSTEM</a>
-            <a href="/action/restart" class="btn">REBOOT (Apply Mods)</a>
+        <!-- HEADER -->
+        <div class="header-panel">
+            <div>
+                <h1>> GIL_SYSTEMS <span class="blink">_</span></h1>
+                <small>RADXA NODE // HYTALE CONTROLLER</small>
+            </div>
+            <div class="status-badge {{ status }}">{{ status }}</div>
         </div>
 
-        <div class="mod-list">
-            <h2>&gt; MOD_INJECTOR (CurseForge ID)</h2>
-            <form action="/add_mod" method="POST">
-                <input type="text" name="mod_id" placeholder="Ex: 325467" required>
-                <button type="submit" class="btn">INJECT</button>
-                <a href="https://www.curseforge.com/minecraft/mc-mods" target="_blank" style="color: #666; font-size: 0.8em;">Find IDs on CurseForge</a>
-            </form>
+        <!-- DASHBOARD -->
+        <div class="dashboard">
+            
+            <!-- CONTROLS -->
+            <div class="panel">
+                <h3 class="panel-title">> POWER_MANAGEMENT</h3>
+                <div class="btn-group">
+                    <a href="/action/start" class="btn">INITIALIZE</a>
+                    <a href="/action/restart" class="btn btn-action">REBOOT SYSTEM</a>
+                </div>
+            </div>
 
-            <h3>&gt; ACTIVE_MODULES:</h3>
-            <ul>
-                {% for mod in mods %}
-                <li>
-                    ID: <b>{{ mod }}</b> 
-                    <a href="/remove_mod/{{ mod }}" style="color: red; float: right;">[EJECT]</a>
-                </li>
-                {% else %}
-                <li style="color: #666;">No modules loaded.</li>
-                {% endfor %}
-            </ul>
+            <!-- STATS -->
+            <div class="panel">
+                <h3 class="panel-title">> TELEMETRY</h3>
+                <div class="stat-row">
+                    <span>CPU_LOAD:</span>
+                    <span class="stat-val">{{ stats.cpu }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>MEM_USAGE:</span>
+                    <span class="stat-val">{{ stats.ram }}</span>
+                </div>
+            </div>
+
+            <!-- CONSOLE -->
+            <div class="panel log-panel">
+                <h3 class="panel-title">> SYSTEM_LOGS (Real-time)</h3>
+                <div id="console-output">Loading logs...</div>
+            </div>
+
+            <!-- MODS -->
+            <div class="panel mod-panel">
+                <h3 class="panel-title">> MOD_INJECTOR</h3>
+                
+                <form action="/add_mod" method="POST" class="input-group">
+                    <input type="text" name="mod_id" placeholder="CurseForge ID (e.g. 325467)" required>
+                    <input type="text" name="mod_name" placeholder="Mod Name (Optional)">
+                    <button type="submit" class="btn">INJECT</button>
+                </form>
+
+                <table class="mod-table">
+                    {% for mod in mods %}
+                    <tr>
+                        <td class="mod-name">{{ mod.name }}</td>
+                        <td class="mod-id">ID: {{ mod.id }}</td>
+                        <td style="text-align: right;">
+                            <a href="/remove_mod/{{ mod.id }}" class="btn-del">EJECT</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" style="text-align: center; color: #555;">NO MODULES LOADED</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+
         </div>
     </div>
+
+    <script>
+        // Simple log fetcher
+        function updateLogs() {
+            fetch('/logs')
+                .then(response => response.json())
+                .then(data => {
+                    const consoleDiv = document.getElementById('console-output');
+                    consoleDiv.innerText = data.log;
+                    consoleDiv.scrollTop = consoleDiv.scrollHeight; // Auto-scroll
+                });
+        }
+        setInterval(3000, updateLogs); // Refresh every 3s
+        // Initial call
+        updateLogs();
+    </script>
 </body>
 </html>

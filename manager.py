@@ -28,132 +28,89 @@ else:
     print(f"[*] Configuration: Defaulting to home path: {DATA_PATH}")
 
 # FILES
-MODS_FILE = os.path.join(DATA_PATH, "cf_mods.txt")      # Only IDs for the Server
-MODS_DB_FILE = os.path.join(DATA_PATH, "mods_db.json")  # ID:Name mapping for UI
+MODS_FILE = os.path.join(DATA_PATH, "cf_mods.txt")      # IDs only
+MODS_DB_FILE = os.path.join(DATA_PATH, "mods_db.json")  # Metadata
+SECRETS_FILE = os.path.join(DATA_PATH, "secrets.json")  # API Keys
 
 # -----------------------------------------------------------------------------
-# MIGRATION & INIT
+# INIT & UTILS
 # -----------------------------------------------------------------------------
 def init_storage():
-    """
-    Ensures files exist and fixes the format if 'ID|Name' pollution is found.
-    """
     if not os.path.exists(DATA_PATH):
-        try:
-            os.makedirs(DATA_PATH)
-        except:
-            pass
+        try: os.makedirs(DATA_PATH)
+        except: pass
+    
+    # Ensure files exist
+    for fpath in [MODS_FILE, MODS_DB_FILE, SECRETS_FILE]:
+        if not os.path.exists(fpath):
+            with open(fpath, 'w') as f:
+                if fpath.endswith('.json'): json.dump({}, f)
+                else: f.write("")
 
-    # Load existing DB or create empty
-    db = {}
-    if os.path.exists(MODS_DB_FILE):
-        try:
-            with open(MODS_DB_FILE, 'r') as f:
-                db = json.load(f)
-        except:
-            db = {}
-
-    clean_ids = []
-    dirty_found = False
-
-    # Check MODS_FILE for corruption (IDs containing '|')
-    if os.path.exists(MODS_FILE):
-        with open(MODS_FILE, 'r') as f:
-            lines = f.readlines()
-        
-        for line in lines:
-            line = line.strip()
-            if not line: continue
-            
-            if '|' in line:
-                # Found a dirty line from previous version
-                dirty_found = True
-                parts = line.split('|')
-                m_id = parts[0].strip()
-                m_name = parts[1].strip()
-                
-                if m_id:
-                    clean_ids.append(m_id)
-                    # Update DB with the recovered name
-                    if m_id not in db:
-                        db[m_id] = m_name
-            else:
-                # Clean line
-                clean_ids.append(line)
-
-        # If we found dirty lines, rewrite the file cleanly
-        if dirty_found:
-            print("[*] MIGRATION: Cleaning mod file format...")
-            with open(MODS_FILE, 'w') as f:
-                for mid in clean_ids:
-                    f.write(mid + "\n")
-            
-            # Save the recovered names to DB
-            with open(MODS_DB_FILE, 'w') as f:
-                json.dump(db, f, indent=2)
-            print("[*] MIGRATION: Complete. Names saved to mods_db.json")
-
-    else:
-        # Create empty file
-        with open(MODS_FILE, 'w') as f:
-            f.write("")
-        with open(MODS_DB_FILE, 'w') as f:
-            json.dump({}, f)
-
-# Run init immediately
 init_storage()
 
-# -----------------------------------------------------------------------------
-# HELPERS
-# -----------------------------------------------------------------------------
 def get_container():
     try:
         return client.containers.get(CONTAINER_NAME)
     except docker.errors.NotFound:
         return None
 
+def get_api_key():
+    """Retrieve API Key from secrets.json or ENV"""
+    # 1. Check Env
+    key = os.environ.get("HYTALE_CURSEFORGE_API_KEY")
+    if key: return key
+    
+    # 2. Check File
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get("cf_api_key", "")
+        except: pass
+    return ""
+
+def save_api_key(key):
+    """Save API Key to secrets.json"""
+    data = {}
+    if os.path.exists(SECRETS_FILE):
+        try:
+            with open(SECRETS_FILE, 'r') as f:
+                data = json.load(f)
+        except: pass
+    
+    data["cf_api_key"] = key.strip()
+    with open(SECRETS_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
 def get_mod_name_db(mod_id):
-    """Get name from local DB, return None if missing"""
     if os.path.exists(MODS_DB_FILE):
         try:
             with open(MODS_DB_FILE, 'r') as f:
                 db = json.load(f)
             return db.get(str(mod_id))
-        except:
-            return None
+        except: pass
     return None
 
 def save_mod_name_db(mod_id, name):
-    """Save name to local DB"""
     db = {}
     if os.path.exists(MODS_DB_FILE):
         try:
             with open(MODS_DB_FILE, 'r') as f:
                 db = json.load(f)
-        except:
-            pass
+        except: pass
     
     db[str(mod_id)] = name
     with open(MODS_DB_FILE, 'w') as f:
         json.dump(db, f, indent=2)
 
 def get_mod_name_auto(mod_id):
-    """Fetch from API"""
     try:
         response = requests.get(f"https://api.cfwidget.com/{mod_id}", timeout=5)
         if response.status_code == 200:
             data = response.json()
             return data.get("title") or data.get("name")
-    except:
-        pass
-    
-    try:
-        r = requests.head(f"https://minecraft.curseforge.com/projects/{mod_id}", allow_redirects=True, timeout=5)
-        if r.status_code == 200:
-            slug = r.url.split('/')[-1]
-            return slug.replace('-', ' ').title()
-    except:
-        pass
+    except: pass
     return None
 
 # -----------------------------------------------------------------------------
@@ -187,18 +144,17 @@ def index():
                 m_id = line.strip()
                 if not m_id: continue
                 
-                # Look in DB first
                 name = get_mod_name_db(m_id)
-                
-                # If missing, fetch and save
                 if not name:
                     fetched = get_mod_name_auto(m_id)
                     name = fetched if fetched else f"Mod {m_id}"
                     save_mod_name_db(m_id, name)
                 
                 mods.append({"id": m_id, "name": name})
+    
+    api_key_set = bool(get_api_key())
 
-    return render_template('index.html', status=status, stats=stats, mods=mods)
+    return render_template('index.html', status=status, stats=stats, mods=mods, api_key_set=api_key_set)
 
 @app.route('/logs')
 def logs():
@@ -217,6 +173,12 @@ def logs():
 def container_action(action):
     container = get_container()
     if container:
+        # If API key is managed by us (in secrets.json), we might need to recreate the container
+        # But assuming the user restarts manually or we just pass it via ENV to start command?
+        # Docker 'start' reuses existing config. 
+        # For full automation, user should set API key in docker run command or env file.
+        # However, we can inject it if we reconstruct the container, but that's risky.
+        # For now, standard actions.
         if action == "start": container.start()
         elif action == "restart": container.restart()
     return redirect(url_for('index'))
@@ -224,21 +186,14 @@ def container_action(action):
 @app.route('/add_mod', methods=['POST'])
 def add_mod():
     mod_id = request.form.get('mod_id').strip()
-    
     if mod_id and os.path.exists(MODS_FILE):
-        # Check duplicates
         with open(MODS_FILE, "r") as f:
             current_ids = [line.strip() for line in f.readlines()]
-        
         if mod_id not in current_ids:
-            # 1. Add to Server File (ID ONLY)
             with open(MODS_FILE, "a") as f:
                 f.write(f"{mod_id}\n")
-            
-            # 2. Add to Metadata DB (Name)
             name = get_mod_name_auto(mod_id) or f"Mod {mod_id}"
             save_mod_name_db(mod_id, name)
-    
     return redirect(url_for('index'))
 
 @app.route('/remove_mod/<mod_id>')
@@ -246,19 +201,20 @@ def remove_mod(mod_id):
     if os.path.exists(MODS_FILE):
         with open(MODS_FILE, "r") as f:
             lines = f.readlines()
-        
-        # Rewrite Server File excluding ID
         with open(MODS_FILE, "w") as f:
             for line in lines:
                 if line.strip() != mod_id:
                     f.write(line)
-    
-    # Optional: We don't necessarily need to remove from JSON, 
-    # keeping cache is fine, or we could delete it to be clean.
-    # Let's keep it simple and leave it in JSON as cache.
-                
+    return redirect(url_for('index'))
+
+@app.route('/save_key', methods=['POST'])
+def save_key():
+    key = request.form.get('api_key', '').strip()
+    if key:
+        save_api_key(key)
+        # Note: Changing this requires container recreation to take effect if passed as ENV
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    print(f"[*] Gil's Manager v2.1 - Active Data Path: {DATA_PATH}")
+    print(f"[*] Gil's Manager v2.2 - Active Data Path: {DATA_PATH}")
     app.run(host='0.0.0.0', port=5000, debug=True)
